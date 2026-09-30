@@ -6,7 +6,7 @@ platform_jar="${ANDROID_JAR:-../hello-android/platform/android-35/android.jar}"
 mkdir -p build/classes
 javac -source 8 -target 8 -bootclasspath "$platform_jar" -d build/classes src/com/example/colorbattle/*.java
 dx --dex --output=build/classes.dex build/classes
-aapt package -f -M AndroidManifest.xml -S res -I "$platform_jar" -F build/unsigned.apk
+aapt package -f -M AndroidManifest.xml -S res -A assets -I "$platform_jar" -F build/unsigned.apk
 (cd build && aapt add unsigned.apk classes.dex)
 zipalign -f 4 build/unsigned.apk build/aligned.apk
 if [ ! -f build/debug.keystore ]; then

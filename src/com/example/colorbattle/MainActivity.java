@@ -26,7 +26,7 @@ public final class MainActivity extends Activity {
         public abstract void choose(int n);
         public void onClick(DialogInterface d,int n){choose(n);}
     }
-    Game game; Game.Unit selected; Board board; ResourceBar resourceBar; TextView status, hint, unitInfo;
+    Game game; Game.Unit selected; Board board; ResourceBar resourceBar; TextView status, hint, unitInfo; Sprites sprites;
     final Handler botHandler=new Handler();
     boolean botScheduled;
     int baseCursor=-1;
@@ -41,6 +41,7 @@ public final class MainActivity extends Activity {
     final int[] colors={0xff42a5ff,0xffffa442,0xffff535d,0xffff83cd};
     AtomicFile saveFile(){return new AtomicFile(new File(getFilesDir(),"battle.save"));}
     @Override public void onCreate(Bundle state){super.onCreate(state);
+        sprites=new Sprites(getAssets());
         try(ObjectInputStream in=new ObjectInputStream(saveFile().openRead())){game=(Game)in.readObject();game.upgradeSave();}catch(Exception e){game=null;}
         LinearLayout root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(0xff101e2b);
         root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener(){public WindowInsets onApplyWindowInsets(View v,WindowInsets i){v.setPadding(i.getSystemWindowInsetLeft(),i.getSystemWindowInsetTop(),i.getSystemWindowInsetRight(),i.getSystemWindowInsetBottom());return i.consumeSystemWindowInsets();}});
@@ -74,12 +75,12 @@ public final class MainActivity extends Activity {
         if(!humanAlive()){message="All human players were eliminated. Start a new game.";refresh();return;}
         botScheduled=true;final Game active=game;
         botHandler.postDelayed(new Runnable(){public void run(){if(game!=active)return;botScheduled=false;if(game.winner>=0||!game.isBot(game.current))return;int player=game.current;Bot.playTurn(game);selected=null;baseCursor=-1;message=Game.SHAPES[player]+" bot finished its turn.";refresh();if(game.winner>=0)return;if(game.isBot(game.current))scheduleBot();else showHumanTurn();}},350);}
-    void help(){new AlertDialog.Builder(MainActivity.this).setTitle("How to play").setMessage("Players are Circle, Square, Triangle, and Star. Building flags show the owner's shape. Crystals show resources; left arrows between them show which color wins, and the curved top arrow shows Blue killing Pink. Colored shapes in the recruitment menu show units.\n\nTap your fortress to recruit. The first unit of a color costs 5 matching crystals; each living unit you own of that color adds 1 to the next price. Each unit can make ONE move of up to 3 cells per turn. Unused distance is lost. Firing prevents later movement. You can move and then fire. New units can act immediately.\n\nWhite borders mean your unit can move; enemy and spent units have black borders. A green frame marks your selection without covering the tile. Green dots and outlines mark reachable cells, including buildings. Tap a highlighted enemy to fire. Tapping another owned unit selects it, even when marked as a valid shot. Tapping an unreachable owned fortress opens recruitment; other invalid destinations clear selection.\n\nOrange kills Blue → Pink → Red → Orange. Shots travel straight up to 3 cells; water and units block them. You can shoot your own units if the colors match the kill rule. Shootable friendly units show !; long press one to request a confirmed friendly shot. Invalid attacks do nothing. A kill stains the tile, blocking units of the killer's color.\n\nEnd your turn on a fortress or mine to capture it. Each turn: +2 of every resource, +2 per matching mine, then −1 of every resource per base. Each color always ends up at least 1 higher than it was at the end of your previous turn. Each player starts with 5 of each before their first income.\n\nLast player with any unit or building wins. New game lets you choose human and bot players. Bottom icons: plus = new game, question mark = help, unit arrow = next unmoved unit, fortress arrow = next owned base, curved arrow = undo the last action, right arrow = end turn. Each tap of Undo restores one purchase, move, shot, or End Turn, including bot responses to that End Turn. The turn number advances after all players have had their turn. Drag or pinch the map. Tap your selected unit again or long press to deselect. Progress saves automatically.").setPositiveButton("Play",null).show();}
+    void help(){new AlertDialog.Builder(MainActivity.this).setTitle("How to play").setMessage("Players are Circle, Square, Triangle, and Star. Building flags show the owner's robot sign. Crystals show resources; left arrows between them show which color wins, and the curved top arrow shows Blue killing Pink. Colored robot images in the recruitment menu show units.\n\nTap your fortress to recruit. The first unit of a color costs 5 matching crystals; each living unit you own of that color adds 1 to the next price. Each unit can make ONE move of up to 3 cells per turn. Unused distance is lost. Firing prevents later movement. You can move and then fire. New units can act immediately.\n\nA white contour follows a unit that can still move; spent and enemy units have no contour. A green frame marks your selection without covering the tile. Green dots and outlines mark reachable cells, including buildings. Tap a highlighted enemy to fire. Tapping another owned unit selects it unless your selected unit has moved and can shoot it. Tapping an unreachable owned fortress opens recruitment; other invalid destinations clear selection.\n\nOrange kills Blue → Pink → Red → Orange. Shots travel straight up to 3 cells; water and units block them. You can shoot your own units if the colors match the kill rule. Shootable friendly units show !; long press one to request a confirmed friendly shot. Invalid attacks do nothing. A kill stains the tile, blocking units of the killer's color.\n\nEnd your turn on a fortress or mine to capture it. Each turn: +2 of every resource, +2 per matching mine, then −1 of every resource per base. Each color always ends up at least 1 higher than it was at the end of your previous turn. Each player starts with 5 of each before their first income.\n\nLast player with any unit or building wins. New game lets you choose human and bot players. Bottom icons: plus = new game, question mark = help, unit arrow = next unmoved unit, fortress arrow = next owned base, curved arrow = undo the last action, right arrow = end turn. Each tap of Undo restores one purchase, move, shot, or End Turn, including bot responses to that End Turn. The turn number advances after all players have had their turn. Drag or pinch the map. Tap your selected unit again or long press to deselect. Progress saves automatically.").setPositiveButton("Play",null).show();}
     int dp(int n){return Math.round(n*getResources().getDisplayMetrics().density);}
     float dp(float n){return n*getResources().getDisplayMetrics().density;}
     CharSequence iconText(int color,int owner,String suffix){
         SpannableStringBuilder text=new SpannableStringBuilder("  "+suffix);
-        Drawable icon=art.icon(colors[color],owner,dp(26));icon.setBounds(0,0,dp(26),dp(26));
+        Drawable icon=owner<0?art.icon(colors[color],owner,dp(26)):sprites.unitIcon(getResources(),owner,color);icon.setBounds(0,0,dp(26),dp(26));
         text.setSpan(new ImageSpan(icon,ImageSpan.ALIGN_BOTTOM),0,1,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);return text;
     }
     void save(){if(game==null)return;FileOutputStream out=null;try{out=saveFile().startWrite();ObjectOutputStream o=new ObjectOutputStream(out);o.writeObject(game);o.flush();saveFile().finishWrite(out);}catch(Exception e){if(out!=null)saveFile().failWrite(out);message="Could not save progress.";}}
@@ -190,16 +191,19 @@ public final class MainActivity extends Activity {
         void box(Canvas c,float x,float y,float w,float h,int color){p.setColor(color);p.setStyle(Paint.Style.FILL);c.drawRect(x,y,x+w,y+h,p);}
         void label(Canvas c,String s,float x,float y,float size,int color){p.setColor(color);p.setTextSize(size);p.setTextAlign(Paint.Align.CENTER);c.drawText(s,x,y,p);}
         void outline(Canvas c,float left,float top,int color,float inset){p.setStyle(Paint.Style.STROKE);p.setStrokeWidth(Math.max(2,tile*.035f));p.setColor(color);c.drawRoundRect(new RectF(left+tile*inset,top+tile*inset,left+tile*(1-inset),top+tile*(1-inset)),tile*.10f,tile*.10f,p);p.setStyle(Paint.Style.FILL);}
-        @Override protected void onDraw(Canvas canvas){canvas.drawColor(0xff102b40);if(game==null)return;int[][] reach=selected==null?null:game.distances(selected);
+        @Override protected void onDraw(Canvas canvas){sprites.background(canvas,getWidth(),getHeight());if(game==null)return;int[][] reach=selected==null?null:game.distances(selected);
+            for(int y=0;y<game.size;y++)for(int x=0;x<game.size;x++)if(game.cells[y][x].land&&(y==game.size-1||!game.cells[y+1][x].land)){
+                float left=ox+x*tile,top=oy+y*tile;
+                if(left<=getWidth()&&top<=getHeight()&&left+tile>=0&&top+tile*2.05f>=0)sprites.floating(canvas,game.seed,x,y,left,top,tile);
+            }
             for(int y=0;y<game.size;y++)for(int x=0;x<game.size;x++){float left=ox+x*tile,top=oy+y*tile;if(left>getWidth()||top>getHeight()||left+tile<0||top+tile<0)continue;Game.Cell c=game.cells[y][x];if(!c.land)continue;
-                box(canvas,left+1,top+1,tile-2,tile-2,0xff354b50);
-                if(c.stain>=0){p.setColor(colors[c.stain]);p.setAlpha(105);canvas.drawRect(left+2,top+2,left+tile-2,top+tile-2,p);p.setAlpha(255);}
+                sprites.ground(canvas,game.seed,x,y,left,top,tile);
+                if(c.stain>=0)sprites.spot(canvas,game.seed,x,y,c.stain,left,top,tile);
                 boolean chosen=selected!=null&&selected.x==x&&selected.y==y;
-                if(c.building!=0){canvas.save();canvas.translate(left,top);canvas.scale(tile/100f,tile/100f);if(c.building==1)art.base(canvas);else art.mine(canvas,colors[c.mine]);if(c.owner>=0)art.flag(canvas,c.owner,c.building==2);canvas.restore();}
+                if(c.building!=0){sprites.building(canvas,c.building,c.mine,left,top,tile);if(c.owner>=0)sprites.flag(canvas,c.owner,left,top,tile);}
                 Game.Unit u=game.at(x,y);if(u!=null){
-                    float cx=left+tile*.5f,cy=top+tile*.5f,radius=tile*.24f;
                     boolean ready=u.owner==game.current&&!u.fired&&u.moves==game.rules.movement&&u.moves>0;
-                    art.unit(canvas,u.owner,cx,cy,radius,ready?Color.WHITE:0xff050b10,colors[u.color]);
+                    sprites.unit(canvas,u.owner,u.color,left,top,tile,ready);
                     if(selected!=null&&game.canAttack(selected,u)){
                         outline(canvas,left,top,0xffff7979,.065f);
                         if(u.owner==selected.owner){
