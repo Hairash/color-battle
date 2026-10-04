@@ -9,6 +9,8 @@ public final class Game implements Serializable {
     public static final String[] COLORS = {"Blue", "Orange", "Red", "Pink"};
     public static final String[] SHAPES = {"Circle", "Square", "Triangle", "Star"};
     public static class Rules implements Serializable {
+        private static final long serialVersionUID = 7689591962289334790L;
+        public static final int SMALL_MAP=25, MEDIUM_MAP=32, LARGE_MAP=39;
         public int movement=3, range=3, price=5, income=2, mineIncome=2, upkeep=1;
     }
     public static class Cell implements Serializable {
@@ -19,8 +21,8 @@ public final class Game implements Serializable {
         Unit(int p,int c,int x,int y,int m) {owner=p;color=c;this.x=x;this.y=y;moves=m;}
     }
     public final Rules rules = new Rules();
-    public final int size=39, players;
-    public final Cell[][] cells = new Cell[size][size];
+    public final int size, players;
+    public final Cell[][] cells;
     public final int[][] resources;
     public final List<Unit> units = new ArrayList<>();
     public boolean[] botPlayers;
@@ -29,7 +31,10 @@ public final class Game implements Serializable {
     public int current=0, turn=1, winner=-1;
     public final long seed;
     public Game(int players,long seed) {this(players,seed,0);}
-    public Game(int players,long seed,int botCount) {
+    public Game(int players,long seed,int botCount) {this(players,seed,botCount,Rules.LARGE_MAP);}
+    public Game(int players,long seed,int botCount,int mapSize) {
+        if(mapSize!=Rules.SMALL_MAP&&mapSize!=Rules.MEDIUM_MAP&&mapSize!=Rules.LARGE_MAP)throw new IllegalArgumentException("Unknown map size");
+        size=mapSize;cells=new Cell[size][size];
         if(players<2||players>4) throw new IllegalArgumentException("Choose 2–4 players");
         if(botCount<0||botCount>=players)throw new IllegalArgumentException("Keep at least one human player");
         this.players=players; this.seed=seed; resources=new int[players][4];
@@ -51,11 +56,12 @@ public final class Game implements Serializable {
     public final List<Island> islands=new ArrayList<>();
     public final List<Bridge> bridges=new ArrayList<>();
     private void generate(Random r) {
-        int columns=4+r.nextInt(2),rows=4+r.nextInt(2),count=columns*rows;
+        int maximum=(size-4)/7;
+        int columns=maximum==3?3:maximum-1+r.nextInt(2),rows=maximum==3?3:maximum-1+r.nextInt(2),count=columns*rows;
         List<List<int[]>> footprints=new ArrayList<>();
         for(int row=0;row<rows;row++)for(int col=0;col<columns;col++) {
-            int x=4+col*7+r.nextInt(2)+(5-columns)*3;
-            int y=4+row*7+r.nextInt(2)+(5-rows)*3;
+            int x=4+col*7+r.nextInt(2)+(maximum-columns)*3;
+            int y=4+row*7+r.nextInt(2)+(maximum-rows)*3;
             islands.add(new Island(x,y));
             List<int[]> tiles=new ArrayList<>();
             int radius=1+r.nextInt(2);
@@ -162,10 +168,13 @@ public final class Game implements Serializable {
     public Unit at(int x,int y) {for(Unit u:units) if(u.x==x&&u.y==y)return u;return null;}
     public boolean alive(int p) {
         for(Unit u:units)if(u.owner==p)return true;
-        for(Cell[] row:cells)for(Cell c:row)if(c.building!=0&&c.owner==p)return true;
+        for(Cell[] row:cells)for(Cell c:row)if(c.building==1&&c.owner==p)return true;
         return false;
     }
     private void beginTurn() {
+        // A unit must survive the other teams' turns before it claims a building.
+        for(Unit u:units)if(u.owner==current&&cells[u.y][u.x].building!=0)cells[u.y][u.x].owner=current;
+        checkWinner();if(winner>=0)return;
         int bases=0;
         int[] before=resources[current].clone();
         for(int c=0;c<4;c++)resources[current][c]+=rules.income;
@@ -212,7 +221,7 @@ public final class Game implements Serializable {
         if(!canMove(u))return "Movement used. A unit can move once, before firing.";
         if(!inside(x,y))return "Outside map.";
         int d=distances(u)[y][x];if(d<=0)return "No path within remaining movement.";
-        u.x=x;u.y=y;u.moves=0;return "Moved. Capture happens at end of turn.";
+        u.x=x;u.y=y;u.moves=0;return "Moved. Capture happens at the start of your next turn if this unit survives.";
     }
     public boolean canAttack(Unit u,Unit target) {
         if(winner>=0||!units.contains(u)||!units.contains(target)||u==target||u.owner!=current||u.fired)return false;
@@ -220,19 +229,17 @@ public final class Game implements Serializable {
         int distance=Math.abs(u.x-target.x)+Math.abs(u.y-target.y);
         if(distance<1||distance>rules.range||(u.x!=target.x&&u.y!=target.y))return false;
         int dx=Integer.signum(target.x-u.x),dy=Integer.signum(target.y-u.y);
-        for(int i=1;i<distance;i++)if(!cells[u.y+dy*i][u.x+dx*i].land||at(u.x+dx*i,u.y+dy*i)!=null)return false;
+        for(int i=1;i<distance;i++)if(at(u.x+dx*i,u.y+dy*i)!=null)return false;
         return true;
     }
     public String attack(Unit u,Unit target) {
-        if(!canAttack(u,target))return "Ignored: check color, straight range, clear land, and remaining shot.";
+        if(!canAttack(u,target))return "Ignored: check color, straight range, clear line of fire, and remaining shot.";
         cells[target.y][target.x].stain=u.color;units.remove(target);u.fired=true;checkWinner();
         return (target.owner==u.owner?"Friendly unit":"Enemy")+" eliminated; tile stained "+COLORS[u.color]+".";
     }
     private void checkWinner(){int count=0,last=-1;for(int p=0;p<players;p++)if(alive(p)){count++;last=p;}if(count==1)winner=last;}
     public void endTurn() {
         if(winner>=0)return;
-        for(Unit u:units)if(u.owner==current&&cells[u.y][u.x].building!=0)cells[u.y][u.x].owner=current;
-        checkWinner();if(winner>=0)return;
         int previous=current;
         do {current=(current+1)%players;}while(!alive(current));
         if(current<=previous)turn++;

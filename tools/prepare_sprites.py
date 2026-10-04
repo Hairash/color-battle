@@ -15,7 +15,7 @@ SOURCE = ROOT / "images"
 OUTPUT = ROOT / "assets" / "graphics"
 COLORS = ("blue", "orange", "red", "pink")
 TYPES = ("walker", "saucer", "tank", "wheel_turret")
-SIGN_COLUMNS = ("walker", "tank", "saucer", "wheel_turret")
+CACHE = ROOT / "build" / "sprites"
 
 
 def trim(image, padding=2):
@@ -81,59 +81,71 @@ def save_sprite(source, name, size=256):
     image.save(OUTPUT / name)
 
 
+def clear_faint_background(image, cutoff=128, padding=2):
+    alpha = image.getchannel("A").point(lambda value: 0 if value < cutoff else value)
+    image.putalpha(alpha)
+    return trim(image, padding=padding)
+
+
 def crop_ground_tiles():
-    """Cut the first two rows of Tileset 2 and clear only the white paper."""
-    sheet = Image.open(SOURCE / "extras" / "Tileset 2.png").convert("RGB")
-    folder = SOURCE / "tileset-2"
-    for row in range(2):
-        for column in range(8):
-            left = round(column * sheet.width / 8) + 3
-            right = round((column + 1) * sheet.width / 8) - 3
-            top = round(row * sheet.height / 5) + 3
-            bottom = round((row + 1) * sheet.height / 5) - 3
-            cell = sheet.crop((left, top, right, bottom))
-            # Keep the tile outline, including rounded corners and a few
-            # transparent pixels around it.
-            ground = remove_sheet_background(cell)
-            alpha = ground.getchannel("A").point(lambda value: 0 if value < 128 else value)
-            ground.putalpha(alpha)
-            ground = trim(ground)
-            ground.save(folder / f"ground_{row * 8 + column + 1:02d}.png")
+    """Split the 6-by-6 new sheet at its white gutters, preserving tile edges."""
+    sheet = Image.open(SOURCE / "extras" / "new ground.png").convert("RGB")
+    x_edges = (0, 230, 425, 626, 834, 1033, 1254)
+    y_edges = (0, 216, 417, 618, 817, 1013, 1254)
+    folder = CACHE / "new-ground"
+    folder.mkdir(parents=True, exist_ok=True)
+    for row in range(6):
+        for column in range(6):
+            cell = sheet.crop((x_edges[column], y_edges[row], x_edges[column + 1], y_edges[row + 1]))
+            # Keep every visible edge pixel, but no fully transparent outer rows
+            # or columns that would reveal the map background between tiles.
+            ground = clear_faint_background(remove_sheet_background(cell), padding=0)
+            ground.save(folder / f"ground_{row * 6 + column + 1:02d}.png")
 
 
-def split_new_sheets():
-    sign_sheet = Image.open(SOURCE / "extras" / "signs.png")
-    sign_folder = SOURCE / "signs"
-    sign_folder.mkdir(exist_ok=True)
-    for column, name in enumerate(SIGN_COLUMNS):
-        left = round(column * sign_sheet.width / 4) + 3
-        right = round((column + 1) * sign_sheet.width / 4) - 3
-        sign_sheet.crop((left, 3, right, sign_sheet.height - 3)).save(sign_folder / f"{name}.png")
+def crop_units_and_mines():
+    units = Image.open(SOURCE / "extras" / "new units.png").convert("RGB")
+    unit_folder = CACHE / "new-units"
+    unit_folder.mkdir(parents=True, exist_ok=True)
+    # The horizontal dividers are at 317, 619, and 917, not at equal quarters.
+    # Using equal rows included divider lines below saucers/tanks and cut the
+    # top of the wheel turrets.
+    row_edges = (0, 318, 620, 918, units.height)
+    for row, robot_type in enumerate(TYPES):
+        for column, color in enumerate(COLORS):
+            left = round(column * units.width / 4) + 8
+            right = round((column + 1) * units.width / 4) - 8
+            top = row_edges[row] + (3 if row == 3 else 8)
+            bottom = row_edges[row + 1] - 8
+            image = clear_faint_background(remove_sheet_background(units.crop((left, top, right, bottom))), 75)
+            image.save(unit_folder / f"{robot_type}_{color}.png")
 
-    spot_sheet = Image.open(SOURCE / "extras" / "spots.png")
-    spot_folder = SOURCE / "spots"
-    spot_folder.mkdir(exist_ok=True)
-    for row, color in enumerate(COLORS):
-        for column in range(5):
-            left = round(column * spot_sheet.width / 5) + 3
-            right = round((column + 1) * spot_sheet.width / 5) - 3
-            top = round(row * spot_sheet.height / 4) + 3
-            bottom = round((row + 1) * spot_sheet.height / 4) - 3
-            spot_sheet.crop((left, top, right, bottom)).save(spot_folder / f"{color}_{column+1:02d}.png")
+    mines = Image.open(SOURCE / "extras" / "updated mines.png").convert("RGB")
+    mine_folder = CACHE / "new-mines"
+    mine_folder.mkdir(parents=True, exist_ok=True)
+    for column, color in enumerate(COLORS):
+        left = round(column * mines.width / 4)
+        right = round((column + 1) * mines.width / 4)
+        # The red panel has a stray divider mark near its right edge. The mine
+        # itself ends well before it; exclude the mark before trimming alpha.
+        if color == "red":
+            right -= 90
+        image = clear_faint_background(remove_sheet_background(mines.crop((left, 0, right, mines.height))), 75)
+        image.save(mine_folder / f"{color}.png")
 
 
-def chroma_key_flag(image):
-    image = image.convert("RGBA")
-    pixels = image.load()
-    for y in range(image.height):
-        for x in range(image.width):
-            red, green, blue, _ = pixels[x, y]
-            excess = green - max(red, blue)
-            alpha = max(0, min(255, round((120 - excess) * 255 / 110)))
-            if excess > 8:
-                green = min(green, max(red, blue))
-            pixels[x, y] = (red, green, blue, alpha)
-    return image
+def crop_new_spots():
+    sheet = Image.open(SOURCE / "extras" / "spots2.png").convert("RGBA")
+    folder = CACHE / "new-spots"
+    folder.mkdir(parents=True, exist_ok=True)
+    full_x = ((140, 495), (525, 875), (905, 1270), (1295, 1650))
+    for column, color in enumerate(COLORS):
+        left, right = full_x[column]
+        image = sheet.crop((left, 0, right, 350))
+        alpha = image.getchannel("A").point(lambda value: 0 if value < 8 else value)
+        image.putalpha(alpha)
+        trim(image).save(folder / f"full_{color}.png")
+    # Border spots are hand-edited files in images/new-spots; preserve them.
 
 
 def sign_silhouette(source):
@@ -147,40 +159,92 @@ def sign_silhouette(source):
 
 
 def make_flag(robot_type):
-    flag = chroma_key_flag(Image.open(SOURCE / "extras" / "flag 2.png"))
-    sign = sign_silhouette(SOURCE / "signs" / f"{robot_type}.png")
-    sign.thumbnail((590, 390), Image.Resampling.LANCZOS)
-    # The cloth occupies roughly x=350..1250 and y=260..730 in the original.
-    flag.alpha_composite(sign, (800 - sign.width // 2, 500 - sign.height // 2))
-    flag = trim(flag)
-    flag.thumbnail((320, 320), Image.Resampling.LANCZOS)
+    flag = clear_faint_background(remove_sheet_background(Image.open(SOURCE / "extras" / "flag_patch.png")), 75, padding=0)
+    sign_source = SOURCE / "extras" / f"{robot_type}.png"
+    sign = sign_silhouette(sign_source)
+    # All faction badges use the building silhouettes; only next-unit buttons
+    # use the separate styled menu artwork.
+    badge = Image.new("RGBA", sign.size, (245, 222, 171, 0))
+    badge.putalpha(sign.getchannel("A"))
+    badge.save(OUTPUT / f"team_{robot_type}.png")
+    scale = min(520 / sign.width, 700 / sign.height)
+    # The patch is displayed 1.5 times narrower and 2 times shorter than its
+    # old frame. Precompensate so the sign keeps its source aspect on screen.
+    sign = sign.resize((round(sign.width * scale * .75 * 1.2), round(sign.height * scale * 1.2)), Image.Resampling.LANCZOS)
+    flag.alpha_composite(sign, (flag.width // 2 - sign.width // 2, flag.height * 2 // 5 - sign.height // 2))
+    flag = trim(flag, padding=0)
+    flag.thumbnail((256, 256), Image.Resampling.LANCZOS)
     flag.save(OUTPUT / f"flag_{robot_type}.png")
+
+
+def prepare_menu():
+    folder = CACHE / "menu-signs"
+    folder.mkdir(parents=True, exist_ok=True)
+    sheet = Image.open(SOURCE / "extras" / "menu_signs.png").convert("RGBA")
+    boxes = {
+        "menu": (60, 80, 420, 365), "help": (485, 50, 765, 375),
+        "end": (830, 70, 1210, 370), "arrow": (55, 395, 415, 700),
+        "undo": (470, 385, 790, 710), "hourglass": (865, 385, 1170, 710),
+        "base": (45, 715, 415, 945), "saucer": (440, 735, 815, 945),
+        "tank": (830, 735, 1220, 945), "walker": (265, 950, 610, 1210),
+        "wheel_turret": (685, 950, 1005, 1220),
+    }
+    for name, bounds in boxes.items():
+        # Coordinates are expressed in the supplied 1254-pixel sheet.
+        bounds = tuple(round(v * sheet.width / 1254) for v in bounds)
+        icon = sheet.crop(bounds)
+        pixels = icon.load()
+        for y in range(icon.height):
+            for x in range(icon.width):
+                r, g, b, a = pixels[x, y]
+                alpha = max(0, min(255, (max(r, g, b) - min(r, g, b) - 10) * 255 // 25))
+                pixels[x, y] = (r, g, b, min(a, alpha))
+        icon = trim(icon, padding=0)
+        icon.save(folder / f"{name}.png")
+        icon.thumbnail((192, 192), Image.Resampling.LANCZOS)
+        icon.save(OUTPUT / f"menu_{name}.png")
+    for name, source, size in (("panel", "panel3.png", 1600), ("button", "button4.png", 256)):
+        artwork = clear_faint_background(remove_sheet_background(Image.open(SOURCE / "extras" / source)), 75, padding=0)
+        artwork.thumbnail((size, size), Image.Resampling.LANCZOS)
+        artwork.save(OUTPUT / f"{name}.png")
 
 
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
+    prepare_menu()
     crop_ground_tiles()
-    split_new_sheets()
-    for index in range(1, 17):
-        ground = Image.open(SOURCE / "tileset-2" / f"ground_{index:02d}.png").convert("RGBA")
+    crop_units_and_mines()
+    crop_new_spots()
+    for stale in OUTPUT.glob("spot_*.png"):
+        stale.unlink()
+    for index in range(1, 37):
+        ground = Image.open(CACHE / "new-ground" / f"ground_{index:02d}.png").convert("RGBA")
         ground.save(OUTPUT / f"ground_{index:02d}.png")
     for index in range(1, 9):
         save_sprite(SOURCE / "tileset-2" / f"floating_island_{index:02d}.png", f"floating_island_{index:02d}.png")
     for robot_type in TYPES:
         for color in COLORS:
-            save_sprite(
-                SOURCE / "tileset-1" / f"{robot_type}_{color}.png",
-                f"unit_{robot_type}_{color}.png",
-            )
+            image = Image.open(CACHE / "new-units" / f"{robot_type}_{color}.png")
+            image.thumbnail((256, 256), Image.Resampling.LANCZOS)
+            image.save(OUTPUT / f"unit_{robot_type}_{color}.png")
         make_flag(robot_type)
     for color in COLORS:
-        save_sprite(SOURCE / "tileset-1" / f"crystal_mine_{color}.png", f"mine_{color}.png")
-        for index in range(1, 6):
-            save_sprite(SOURCE / "spots" / f"{color}_{index:02d}.png", f"spot_{color}_{index:02d}.png")
+        mine = Image.open(CACHE / "new-mines" / f"{color}.png")
+        mine.thumbnail((256, 256), Image.Resampling.LANCZOS)
+        mine.save(OUTPUT / f"mine_{color}.png")
+        for kind in ("full", "border"):
+            spot_folder = SOURCE / "new-spots" if kind == "border" else CACHE / "new-spots"
+            spot = Image.open(spot_folder / f"{kind}_{color}.png")
+            spot.thumbnail((256, 256), Image.Resampling.LANCZOS)
+            spot.save(OUTPUT / f"spot_{kind}_{color}.png")
 
-    base = trim(Image.open(SOURCE / "extras" / "base.png").convert("RGBA"))
+    base = clear_faint_background(remove_sheet_background(Image.open(SOURCE / "extras" / "updated base.png")), 75)
     base.thumbnail((320, 320), Image.Resampling.LANCZOS)
     base.save(OUTPUT / "base.png")
+
+    exclamation = trim(Image.open(SOURCE / "extras" / "exclamation.png").convert("RGBA"), padding=0)
+    exclamation.thumbnail((256, 256), Image.Resampling.LANCZOS)
+    exclamation.save(OUTPUT / "exclamation.png")
 
     background = Image.open(SOURCE / "extras" / "background.png").convert("RGB")
     background.save(OUTPUT / "background.png", optimize=True)
@@ -188,4 +252,10 @@ def main():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", type=Path, default=OUTPUT,
+                        help="Output directory; generated-only artwork must be preserved separately.")
+    args = parser.parse_args()
+    OUTPUT = args.output.resolve()
     main()

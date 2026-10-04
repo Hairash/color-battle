@@ -63,7 +63,7 @@ public final class Bot {
 
     private static void act(Game game,Game.Unit unit,boolean clearBaseForRecruitment) {
         if(game.winner>=0 || !game.units.contains(unit))return;
-        // A unit holding a capturable building should stay on it until turn end.
+        // Stay on a capturable building until the next turn begins.
         boolean capturing=game.cells[unit.y][unit.x].building!=0
             && game.cells[unit.y][unit.x].owner!=unit.owner;
         Game.Unit victim=clearBaseForRecruitment?null:target(game,unit);

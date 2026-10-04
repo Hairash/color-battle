@@ -1,2 +1,15 @@
+# Build outputs and local signing material
 build/
 *.class
+*.apk
+*.idsig
+*.keystore
+*.jks
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Desktop metadata
+.DS_Store
+Thumbs.db

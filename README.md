@@ -1,33 +1,85 @@
 # Color Battle
 
-Native Android hot-seat strategy for 2–4 players. No network, external libraries, or runtime permissions. Android 6.0+.
+Native Android turn-based strategy for 2–4 teams, with hot-seat and local bots.
+Java, Android Canvas, packaged PNG artwork, and a Termux build without Gradle.
+Android 6.0+ (API 23); target API 35. No network permission or external runtime libraries.
 
-## Install and play
+## Build and install
 
-Build with `sh build.sh`, then open `build/color-battle.apk` on Android to install. The APK uses its own package (`com.example.colorbattle`) and development signing key, so it can coexist with Wandergrid.
+```sh
+sh test.sh
+sh build.sh
+```
 
-Choose 2–4 total players, then choose how many are bots. At least one seat stays human; human seats come first in Circle, Square, Triangle, Star order. Tap an owned base to recruit; tap a unit and a highlighted cell to move, or a highlighted unit to attack. Tap the selected unit again, or long press, to deselect. Drag to pan and pinch to zoom. End turn captures occupied buildings and passes play to the next surviving player. Bots take their turns automatically. Games save after actions and when leaving the app. Existing hot seat saves load with every seat human.
+Install `build/color-battle.apk` on your phone. The build needs a JDK, `dx`, `aapt`,
+`zipalign`, `apksigner`, and an Android platform jar. Set `ANDROID_JAR` if the
+default `../hello-android/platform/android-35/android.jar` is unavailable.
+The neighboring project is only used as an SDK location; do not modify it.
 
-The six bottom icons are **plus** (new game), **question mark** (help), **unit with arrow** (cycle through your units that can still move, selecting each), **fortress with arrow** (cycle through your bases without selecting), **curved arrow** (undo last action), and **right arrow** (end turn). Each Undo tap reverses one purchase, move, shot, or End Turn. The unit information strip keeps the same top-panel background and height when no unit is selected. Bottom button icons keep square proportions inside their rounded rectangles. Undoing End Turn also reverses subsequent bot responses. Up to 40 actions are kept in memory for the current session. The resource bar uses left arrows for Orange → Blue, Red → Orange, and Pink → Red. The curved top arrow closes the cycle from Blue to Pink; its pointer is angled toward Pink. The first unit or base tap starts at the beginning of its list; repeated taps wrap around. If every human player is eliminated, automatic bot play stops so the app does not run unattended.
+**Keep `build/debug.keystore`.** Existing installations require updates signed
+with the same key. The build creates a development key only when none exists.
 
-Players are identified as Circle, Square, Triangle, and Star throughout the interface. Their unit and flag artwork maps to walker, saucer, tank, and wheel turret in that order. Each unit type has all four colors. The board uses all 16 ground tiles with their curved borders and transparent outer margins, eight floating island undersides along exposed lower edges, the four crystal mines, the separate base, and a background sky. Captured buildings show the chroma-keyed second flag combined with the owner's robot sign. Colored cells display one of five matching paint spots over their ground tile. The original graphics are in `images/`; processed transparent artwork in `assets/graphics/` is packaged into the APK. Rocks and bushes remain unused for now. Colored crystal icons show resources, and recruitment buttons show a unit image followed by its current crystal cost / available resources. Green dots and outlines mark reachable cells, including buildings; coral outlines mark attack targets. A shootable friendly unit shows !. Tapping it after the selected unit has moved fires; otherwise tapping selects it. Long press it to confirm a friendly shot. A white contour follows the shape of units that can still move; spent and enemy units have no contour. A green frame marks the selected unit without covering its tile. Units are centered on buildings and empty ground. The selected unit's information panel stays visible at a fixed height with the same background as the top panel when no unit is selected. Tapping an unreachable owned fortress opens recruitment. Other invalid destinations clear selection. The map keeps its position between turns.
+## Playing
 
-## Rules and implementation choices
+Choose the player count, human/bot ratio, and Small, Medium, or Large map.
+Humans occupy the first seats; every game has at least one human.
+Team signs identify ownership; unit colors determine combat.
 
-- 16–25 irregular islands occupy a jittered layout on a 39 × 39 square grid. A randomized spanning tree, minimum-degree connections, and extra shortcuts create a connected graph with multiple loops and 2–4 neighbors per island. Bridges are 1–3 cells wide and use local corridors to avoid crossing unrelated islands. Each island has exactly 1–2 randomly placed buildings: bases, mines, or a mix. Starting bases are spread apart, and every mine color is present. Existing saved maps remain playable; choose New to generate the updated islands.
-- Units can make one move per turn, traveling up to 3 cells along cardinal paths. Even a shorter move uses the entire movement action. Occupied tiles, water, and matching colored ground block movement. Other ground colors are traversable.
-- Units may fire once per turn along a cardinal line up to 3 cells. They can move then fire; firing first prevents movement for the rest of the turn. Intervening water or units block fire. Orange kills blue, blue kills pink, pink kills red, red kills orange, including units owned by the shooter. A unit cannot target itself. Bots only choose enemy targets. Invalid attacks consume nothing. Successful shots stain the victim's cell with the attacker's color, replacing any previous stain.
-- A new unit costs 5 matching resources plus the number of living units of that color owned by the buyer. For example, two Pink units make the next Pink cost 7; after one dies, the price drops to 6. Prices are independent for each player and color. Units spawn on an empty owned base and can act immediately. A matching stain also blocks recruitment on that base.
-- Every player starts with 5 of each resource. At the beginning of their turn, including their first, they receive 2 of each plus 2 per matching mine, then pay 1 of each per owned base. For each color, the final amount is at least one more than that color had at the end of the player’s previous turn, even if upkeep exceeds income. Circle therefore sees 6 of each on their first turn. Existing saved games retain their resources and units, while their base unit cost is updated to 5.
-- The displayed turn number counts complete rounds: with four players, each starts in turn 1, and turn 2 begins when play returns to the first surviving seat. Older saved counters are converted approximately if players had already been eliminated.
-- Captures occur at the end of the unit owner's turn. Buildings retain ownership after units leave. A player survives while owning any unit or building, including a mine. Eliminated players are skipped. Last surviving player wins.
+Tap a unit and a reachable cell to move, or a highlighted target to shoot.
+Tap an empty owned base to recruit. Long-press playable terrain for cell details.
+Drag to pan; pinch to zoom. The bottom buttons are menu, help, next unmoved unit,
+next base, undo, and end turn (hourglass). The in-app guide illustrates the rules.
 
-Attack allowance, line of sight, and immediate recruitment actions are explicit initial choices where the original brief left details open. A player who has only mines can still survive but cannot recruit without a base.
+Progress saves locally after actions and on pause. Undo stores up to 40 snapshots
+in memory: hot-seat history clears on ending a human turn; single-human games can
+undo End Turn and the subsequent bot response. Undo history is not saved to disk.
 
-## Develop
+## Current rules
 
-`Game.java` contains serializable state, map generation, pathfinding, and validated gameplay commands without Android dependencies. `Bot.java` controls bot seats through the same `buy`, `move`, `attack`, and `endTurn` methods as the UI. Bots spend available resources on repeated purchases, moving each recruit away from its base to free the next spawn. On a normal first turn, the one starting base creates four units. They prioritize unclaimed mines early, hold uncaptured buildings until turn end, and follow traversable routes to other buildings. Recruitment weighs nearby enemy colors heavily; units whose colors can kill an approaching enemy seek clear firing positions in that direction. Balance values live in `Game.Rules`. `MainActivity.java` contains Canvas drawing, touch controls, dialogs, and atomic local saves. The rendering approach and packaging pipeline were informed by `../hello-android`; that project is unmodified.
+- Maps: Small 25×25 / 9 islands; Medium 32×32 / 9–16 islands; Large 39×39 /
+  16–25 islands. Bridges are 1–3 cells wide. Each island has at least two graph
+  neighbors and 1–2 buildings. All mine colors are present.
+- One move per unit per turn, up to 3 cardinal steps. Air, occupied cells, and
+  matching-color stains block movement. Unused movement is lost.
+- One shot per turn, cardinal range 3. Shots cross air; intervening units block
+  them. Orange kills blue, blue kills pink, pink kills red, red kills orange.
+  Friendly fire follows the same rules. Invalid attacks consume nothing.
+- Moving then shooting is allowed; shooting first prevents movement.
+  A successful shot stains the victim's cell with the shooter's color.
+- A unit costs 5 matching resources plus the buyer's living units of that color.
+  It appears at an empty owned base and may act immediately. Matching stains
+  prevent recruitment of that color.
+- Each player starts with 5 of each resource. Beginning a turn grants 2 of each,
+  plus 2 per matching mine, then charges 1 of each per owned base. The result
+  for each resource is at least its previous end-of-turn value plus 1.
+  The first player therefore starts play with 6 of each.
+- Buildings are captured at the start of the occupying unit's next turn, if
+  that unit survives the other teams' turns. A killed occupier cannot capture.
+  Ownership persists after units leave. A team survives while it owns a unit or fortress;
+  mines alone do not keep it in the game. A final shot wins immediately, while
+  capture of the final fortress resolves at the start of the capturing team's
+  next turn.
+  The final surviving team wins. Turns count complete rounds, skipping
+  eliminated teams.
+- A finished game shows a tiled **YOU WIN** or **YOU LOSE** dialog with options
+  to start a new game or view the final field. If every human team is eliminated
+  while multiple bots remain, play stops and shows **YOU LOSE**.
+- Bots recruit repeatedly, prioritize mines early, seek favorable color
+  matchups, and act through the same validated game commands.
 
-Run `sh test.sh` for executable rules tests, including terrain and graph connectivity, neighbor counts, bridge widths, and building limits across 300 maps, economy, combat, movement, capture, victory, and serialization. Run `sh build.sh` to compile, package, and verify the signed APK. The script uses Termux tools and defaults to the reference project's Android 35 SDK jar. Set `ANDROID_JAR` to use another SDK jar. Keep `build/debug.keystore` to sign compatible future updates; it is a development key. To regenerate packaged artwork from the original PNGs, install Pillow and run `python tools/prepare_sprites.py`.
+The source is authoritative. The [description audit](docs/AUDIT.md) tracks
+remaining UI wording and behavior differences.
 
-The app includes a four-crystal launcher icon. The APK has been compiled and signature verified. Emulator/device UI and touch testing has not been performed.
+## Developer documentation
+
+- [Repository map](docs/REPOSITORY.md)
+- [Architecture and state lifecycle](docs/ARCHITECTURE.md)
+- [Build, test, and asset workflows](docs/DEVELOPMENT.md)
+- [Artwork inventory and provenance](images/README.md)
+- [Audit findings and cleanup scope](docs/AUDIT.md)
+- [Agent instructions](AGENTS.md)
+
+`assets/graphics/` contains the exact artwork packaged by the app. Editable
+sources and hand-edited crops are in `images/`; regenerable intermediates go in
+ignored `build/sprites/`. Generated UI artwork is maintained directly in
+`assets/graphics/` with prompt records in `images/*generation.md`.
